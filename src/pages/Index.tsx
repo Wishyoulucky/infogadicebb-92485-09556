@@ -8,8 +8,7 @@ const Index = () => {
   const { data: products, isLoading } = useQuery({
     queryKey: ['products'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('products')
+      const { data, error } = await (supabase.from as any)('products')
         .select('*')
         .order('created_at', { ascending: false });
       
@@ -61,6 +60,10 @@ const Index = () => {
                   price={product.price}
                   image_url={product.image_url || undefined}
                   stock_quantity={product.stock_quantity}
+                  product_flag={product.product_flag as any}
+                  has_options={product.has_options || false}
+                  base_price={product.base_price || undefined}
+                  options_stock_total={product.options_stock_total || undefined}
                 />
               ))}
             </div>

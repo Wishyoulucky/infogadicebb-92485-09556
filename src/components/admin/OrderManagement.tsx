@@ -17,8 +17,7 @@ export const OrderManagement = () => {
   const { data: orders } = useQuery({
     queryKey: ['admin-orders'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('orders')
+      const { data, error } = await (supabase.from as any)('orders')
         .select(`
           *,
           order_items (
@@ -28,14 +27,13 @@ export const OrderManagement = () => {
         `)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data;
+      return data as any[];
     },
   });
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase
-        .from('orders')
+      const { error } = await (supabase.from as any)('orders')
         .update({ status })
         .eq('id', id);
       if (error) throw error;

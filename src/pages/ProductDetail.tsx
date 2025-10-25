@@ -24,8 +24,7 @@ const ProductDetail = () => {
   const { data: product, isLoading } = useQuery({
     queryKey: ['product', id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('products')
+      const { data, error } = await (supabase.from as any)('products')
         .select('*')
         .eq('id', id)
         .single();
@@ -38,8 +37,7 @@ const ProductDetail = () => {
   const { data: options } = useQuery({
     queryKey: ['product-options', id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('product_options')
+      const { data, error } = await (supabase.from as any)('product_options')
         .select('*')
         .eq('product_id', id)
         .order('display_order', { ascending: true });
@@ -85,8 +83,7 @@ const ProductDetail = () => {
 
     if (selectedOption) {
       // Validate stock in real-time from database
-      const { data: optionCheck } = await supabase
-        .from('product_options')
+      const { data: optionCheck } = await (supabase.from as any)('product_options')
         .select('stock_quantity')
         .eq('id', selectedOption.id)
         .single();

@@ -51,8 +51,7 @@ const Checkout = () => {
       }
 
       // Create order with user_id
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
+      const { data: order, error: orderError } = await (supabase.from as any)('orders')
         .insert({
           user_id: session.user.id,
           customer_name: values.name,
@@ -79,27 +78,42 @@ const Checkout = () => {
         option_image: item.option_image || null,
       }));
 
-      const { error: itemsError } = await supabase
-        .from('order_items')
+      const { error: itemsError } = await (supabase.from as any)('order_items')
         .insert(orderItems);
 
       if (itemsError) throw itemsError;
 
-      // Update product stock
+      // Update product stock (use RPC for atomic operation to prevent oversell)
       for (const item of items) {
         if (item.option_id) {
-          // Deduct stock from option
-          const { error: stockError } = await supabase
-            .from('product_options')
-            .update({ stock_quantity: item.stock_quantity - item.quantity })
+          // Deduct stock from option with validation
+          const { data: currentOption } = await (supabase.from as any)('product_options')
+            .select('stock_quantity')
+            .eq('id', item.option_id)
+            .single();
+
+          if (!currentOption || currentOption.stock_quantity < item.quantity) {
+            throw new Error(`สต็อก ${item.name} ไม่เพียงพอ`);
+          }
+
+          const { error: stockError } = await (supabase.from as any)('product_options')
+            .update({ stock_quantity: currentOption.stock_quantity - item.quantity })
             .eq('id', item.option_id);
 
           if (stockError) throw stockError;
         } else {
           // Deduct stock from main product (no options)
-          const { error: stockError } = await supabase
-            .from('products')
-            .update({ stock_quantity: item.stock_quantity - item.quantity })
+          const { data: currentProduct } = await (supabase.from as any)('products')
+            .select('stock_quantity')
+            .eq('id', item.id)
+            .single();
+
+          if (!currentProduct || currentProduct.stock_quantity < item.quantity) {
+            throw new Error(`สต็อก ${item.name} ไม่เพียงพอ`);
+          }
+
+          const { error: stockError } = await (supabase.from as any)('products')
+            .update({ stock_quantity: currentProduct.stock_quantity - item.quantity })
             .eq('id', item.id);
 
           if (stockError) throw stockError;
@@ -212,14 +226,18 @@ const Checkout = () => {
                 <h2 className="text-xl font-bold mb-4">สรุปคำสั่งซื้อ</h2>
                 
                 <div className="space-y-3 mb-4">
-                  {items.map((item) => (
-                    <div key={item.id} className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        {item.name} x {item.quantity}
-                      </span>
-                      <span>฿{(item.price * item.quantity).toFixed(2)}</span>
-                    </div>
-                  ))}
+                  {items.map((item) => {
+                    const itemKey = item.option_id ? `${item.id}-${item.option_id}` : item.id;
+                    return (
+                      <div key={itemKey} className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          {item.name}
+                          {item.option_label && ` (${item.option_label})`} x {item.quantity}
+                        </span>
+                        <span>฿{(item.price * item.quantity).toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
                 
                 <div className="border-t pt-4">

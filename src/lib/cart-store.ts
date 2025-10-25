@@ -52,14 +52,23 @@ export const useCartStore = create<CartState>()(
         return { items: [...state.items, item] };
       }),
       
-      removeItem: (id) => set((state) => ({
-        items: state.items.filter((i) => i.id !== id),
-      })),
+      removeItem: (uniqueKey) => set((state) => {
+        // uniqueKey format: "product_id" or "product_id-option_id"
+        return {
+          items: state.items.filter((i) => {
+            const itemKey = i.option_id ? `${i.id}-${i.option_id}` : i.id;
+            return itemKey !== uniqueKey;
+          }),
+        };
+      }),
       
-      updateQuantity: (id, quantity) => set((state) => ({
-        items: state.items.map((i) =>
-          i.id === id ? { ...i, quantity: Math.min(Math.max(1, quantity), i.stock_quantity) } : i
-        ),
+      updateQuantity: (uniqueKey, quantity) => set((state) => ({
+        items: state.items.map((i) => {
+          const itemKey = i.option_id ? `${i.id}-${i.option_id}` : i.id;
+          return itemKey === uniqueKey
+            ? { ...i, quantity: Math.min(Math.max(1, quantity), i.stock_quantity) }
+            : i;
+        }),
       })),
       
       clearCart: () => set({ items: [] }),

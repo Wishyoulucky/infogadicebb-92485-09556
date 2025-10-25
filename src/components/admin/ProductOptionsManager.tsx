@@ -45,8 +45,7 @@ export const ProductOptionsManager = ({ productId, basePrice }: ProductOptionsMa
   const { data: options, isLoading } = useQuery({
     queryKey: ['product-options', productId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('product_options')
+      const { data, error } = await (supabase.from as any)('product_options')
         .select('*')
         .eq('product_id', productId)
         .order('display_order', { ascending: true });
@@ -58,8 +57,7 @@ export const ProductOptionsManager = ({ productId, basePrice }: ProductOptionsMa
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const { error } = await supabase
-        .from('product_options')
+      const { error } = await (supabase.from as any)('product_options')
         .insert({ ...data, product_id: productId });
       if (error) throw error;
     },
@@ -76,8 +74,7 @@ export const ProductOptionsManager = ({ productId, basePrice }: ProductOptionsMa
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof formData }) => {
-      const { error } = await supabase
-        .from('product_options')
+      const { error } = await (supabase.from as any)('product_options')
         .update(data)
         .eq('id', id);
       if (error) throw error;
@@ -95,8 +92,7 @@ export const ProductOptionsManager = ({ productId, basePrice }: ProductOptionsMa
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('product_options')
+      const { error } = await (supabase.from as any)('product_options')
         .delete()
         .eq('id', id);
       if (error) throw error;

@@ -23,8 +23,7 @@ export const OrderDetail = ({ orderId, isOpen, onClose }: OrderDetailProps) => {
   const { data: order, isLoading } = useQuery({
     queryKey: ['order-detail', orderId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('orders')
+      const { data, error } = await (supabase.from as any)('orders')
         .select(`
           *,
           order_items (
@@ -36,15 +35,14 @@ export const OrderDetail = ({ orderId, isOpen, onClose }: OrderDetailProps) => {
         .single();
       
       if (error) throw error;
-      return data;
+      return data as any;
     },
     enabled: isOpen && !!orderId,
   });
 
   const updateStatusMutation = useMutation({
     mutationFn: async (status: string) => {
-      const { error } = await supabase
-        .from('orders')
+      const { error} = await (supabase.from as any)('orders')
         .update({ status })
         .eq('id', orderId);
       if (error) throw error;
@@ -58,8 +56,7 @@ export const OrderDetail = ({ orderId, isOpen, onClose }: OrderDetailProps) => {
 
   const updateTrackingMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from('orders')
+      const { error } = await (supabase.from as any)('orders')
         .update({ tracking_number: trackingNumber })
         .eq('id', orderId);
       if (error) throw error;

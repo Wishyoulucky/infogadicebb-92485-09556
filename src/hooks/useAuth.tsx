@@ -41,8 +41,7 @@ export const useAdminAuth = () => {
         return;
       }
 
-      const { data } = await supabase
-        .from("user_roles")
+      const { data } = await (supabase.from as any)("user_roles")
         .select("role")
         .eq("user_id", user.id)
         .eq("role", "admin")

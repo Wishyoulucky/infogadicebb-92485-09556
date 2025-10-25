@@ -34,8 +34,10 @@ const Cart = () => {
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Cart Items */}
           <div className="lg:col-span-2 space-y-4">
-            {items.map((item) => (
-              <Card key={item.id}>
+            {items.map((item) => {
+              const itemKey = item.option_id ? `${item.id}-${item.option_id}` : item.id;
+              return (
+              <Card key={itemKey}>
                 <CardContent className="p-6">
                    <div className="flex gap-4">
                      <div className="w-24 h-24 bg-secondary rounded-md overflow-hidden flex-shrink-0">
@@ -72,11 +74,11 @@ const Cart = () => {
                       
                       <div className="flex items-center gap-4">
                         <div className="flex items-center border rounded-md">
-                          <Button
+                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            onClick={() => updateQuantity(itemKey, item.quantity - 1)}
                             disabled={item.quantity <= 1}
                           >
                             <Minus className="h-3 w-3" />
@@ -86,7 +88,7 @@ const Cart = () => {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            onClick={() => updateQuantity(itemKey, item.quantity + 1)}
                             disabled={item.quantity >= item.stock_quantity}
                           >
                             <Plus className="h-3 w-3" />
@@ -97,7 +99,7 @@ const Cart = () => {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => removeItem(item.id)}
+                          onClick={() => removeItem(itemKey)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -110,7 +112,8 @@ const Cart = () => {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            );
+            })}
           </div>
 
           {/* Order Summary */}

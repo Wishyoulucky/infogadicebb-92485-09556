@@ -8,9 +8,36 @@ interface ProductCardProps {
   price: number;
   image_url?: string;
   stock_quantity: number;
+  product_flag?: 'in-stock' | 'preorder' | 'presale';
+  has_options?: boolean;
+  base_price?: number;
+  options_stock_total?: number;
 }
 
-export const ProductCard = ({ id, name, price, image_url, stock_quantity }: ProductCardProps) => {
+export const ProductCard = ({ 
+  id, 
+  name, 
+  price, 
+  image_url, 
+  stock_quantity,
+  product_flag = 'in-stock',
+  has_options = false,
+  base_price,
+  options_stock_total
+}: ProductCardProps) => {
+  const displayStock = has_options ? (options_stock_total || 0) : stock_quantity;
+  const displayPrice = has_options && base_price ? base_price : price;
+  
+  const getFlagLabel = (flag: string) => {
+    switch (flag) {
+      case 'preorder': return 'พรีออเดอร์';
+      case 'presale': return 'พรีเซล';
+      default: return null;
+    }
+  };
+  
+  const flagLabel = getFlagLabel(product_flag);
+  
   return (
     <Link to={`/product/${id}`}>
       <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
@@ -31,12 +58,17 @@ export const ProductCard = ({ id, name, price, image_url, stock_quantity }: Prod
                 </svg>
               </div>
             )}
-            {stock_quantity < 10 && stock_quantity > 0 && (
-              <Badge variant="destructive" className="absolute top-2 right-2">
-                เหลือ {stock_quantity}
+            {flagLabel && (
+              <Badge className="absolute top-2 left-2 bg-primary">
+                {flagLabel}
               </Badge>
             )}
-            {stock_quantity === 0 && (
+            {displayStock < 10 && displayStock > 0 && (
+              <Badge variant="destructive" className="absolute top-2 right-2">
+                เหลือ {displayStock}
+              </Badge>
+            )}
+            {displayStock === 0 && (
               <Badge variant="secondary" className="absolute top-2 right-2">
                 หมด
               </Badge>
@@ -44,7 +76,9 @@ export const ProductCard = ({ id, name, price, image_url, stock_quantity }: Prod
           </div>
           <div className="p-4">
             <h3 className="font-medium text-base mb-2 line-clamp-1">{name}</h3>
-            <p className="text-lg font-semibold">฿{price.toFixed(2)}</p>
+            <p className="text-lg font-semibold">
+              {has_options ? 'เริ่มต้น ' : ''}฿{displayPrice.toFixed(2)}
+            </p>
           </div>
         </CardContent>
       </Card>

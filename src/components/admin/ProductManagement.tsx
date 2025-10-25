@@ -32,18 +32,17 @@ export const ProductManagement = () => {
   const { data: products } = useQuery({
     queryKey: ['admin-products'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('products')
+      const { data, error } = await (supabase.from as any)('products')
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data;
+      return data as any[];
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const { error } = await supabase.from('products').insert(data);
+      const { error } = await (supabase.from as any)('products').insert(data);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -56,7 +55,7 @@ export const ProductManagement = () => {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: any) => {
-      const { error } = await supabase.from('products').update(data).eq('id', id);
+      const { error } = await (supabase.from as any)('products').update(data).eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -69,7 +68,7 @@ export const ProductManagement = () => {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('products').delete().eq('id', id);
+      const { error } = await (supabase.from as any)('products').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
