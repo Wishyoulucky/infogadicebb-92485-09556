@@ -238,7 +238,7 @@ export const OrderDetail = ({ orderId, isOpen, onClose }: OrderDetailProps) => {
               <div className="mt-4 pt-4 border-t">
                 {(() => {
                   const itemsTotal = (order.order_items || []).reduce((s: number, it: any) => s + (it.price * it.quantity), 0);
-                  const shipping = typeof order.shipping === 'number' ? order.shipping : Math.max(0, (order.total_amount || 0) - itemsTotal);
+                  const shipping = typeof order.shipping_amount === 'number' ? order.shipping_amount : Math.max(0, (order.total_amount || 0) - itemsTotal);
                   return (
                     <div>
                       <div className="flex justify-between text-sm">

@@ -112,7 +112,7 @@ export const OrderManagement = () => {
                   {
                     (() => {
                       const itemsTotal = (order.order_items || []).reduce((s: number, it: any) => s + (it.price * it.quantity), 0);
-                      const shipping = typeof order.shipping === 'number' ? order.shipping : Math.max(0, (order.total_amount || 0) - itemsTotal);
+                      const shipping = typeof order.shipping_amount === 'number' ? order.shipping_amount : Math.max(0, (order.total_amount || 0) - itemsTotal);
                       return (
                         <>
                           <p className="font-semibold mt-2">ค่าจัดส่ง: ฿{Number(shipping || 0).toFixed(2)}</p>

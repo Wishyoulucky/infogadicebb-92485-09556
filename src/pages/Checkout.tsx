@@ -62,6 +62,7 @@ const Checkout = () => {
           customer_phone: values.phone,
           customer_address: values.address,
           total_amount: getTotalPrice() + Number(shipping || 0),
+          shipping_amount: Number(shipping || 0),
           status: 'pending',
         })
         .select()
