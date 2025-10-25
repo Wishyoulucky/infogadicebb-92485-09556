@@ -27,6 +27,17 @@ export const ProductManagement = () => {
     image_url: "",
     product_flag: "in-stock",
     eta_date: "",
+    has_options: false,
+    options: [] as Array<{
+      id?: string;
+      label: string;
+      sku: string;
+      image_url: string;
+      stock_quantity: number;
+      price_delta: number;
+      discount_price: number | null;
+      display_order: number;
+    }>,
   });
 
   const { data: products } = useQuery({
@@ -41,9 +52,23 @@ export const ProductManagement = () => {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const { error } = await (supabase.from as any)('products').insert(data);
-      if (error) throw error;
+    mutationFn: async ({ productData, options }: { productData: any; options?: any[] }) => {
+      // Insert product first and then insert options linked to the created product id (if any)
+      const { data: inserted, error: insertError } = await (supabase.from as any)('products')
+        .insert(productData)
+        .select('id')
+        .maybeSingle();
+
+      if (insertError) throw insertError;
+
+      const createdId = (inserted as any)?.id;
+
+      if (options && options.length > 0 && createdId) {
+        // attach product_id to each option
+        const optionsToInsert = options.map((o) => ({ ...o, product_id: createdId }));
+        const { error: optErr } = await (supabase.from as any)('product_options').insert(optionsToInsert);
+        if (optErr) throw optErr;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-products'] });
@@ -54,9 +79,33 @@ export const ProductManagement = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: any) => {
-      const { error } = await (supabase.from as any)('products').update(data).eq('id', id);
-      if (error) throw error;
+    mutationFn: async ({ id, data, options }: any) => {
+      // Update product row
+      const { error: prodErr } = await (supabase.from as any)('products').update(data).eq('id', id);
+      if (prodErr) throw prodErr;
+
+      // If options provided, replace existing options for this product
+      if (options && Array.isArray(options)) {
+        // delete existing options
+        const { error: delErr } = await (supabase.from as any)('product_options').delete().eq('product_id', id);
+        if (delErr) throw delErr;
+
+        if (options.length > 0) {
+          const optsToInsert = options.map((o: any) => ({
+            label: o.label,
+            sku: o.sku,
+            image_url: o.image_url || null,
+            stock_quantity: o.stock_quantity || 0,
+            price_delta: o.price_delta || 0,
+            discount_price: o.discount_price ?? null,
+            display_order: o.display_order || 0,
+            product_id: id,
+          }));
+
+          const { error: insErr } = await (supabase.from as any)('product_options').insert(optsToInsert);
+          if (insErr) throw insErr;
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-products'] });
@@ -88,32 +137,81 @@ export const ProductManagement = () => {
       description: formData.description || null,
       box_set_info: formData.box_set_info || null,
       stock_quantity: parseInt(formData.stock_quantity),
+      has_options: formData.has_options,
+      options_stock_total: formData.has_options ? formData.options.reduce((s, o) => s + (o.stock_quantity || 0), 0) : 0,
       image_url: formData.image_url || null,
       product_flag: formData.product_flag,
       eta_date: formData.eta_date || null,
     };
 
     if (editingProduct) {
-      updateMutation.mutate({ id: editingProduct.id, data });
+      const payload: any = { id: editingProduct.id, data };
+      if (formData.has_options) payload.options = formData.options;
+      updateMutation.mutate(payload);
     } else {
-      createMutation.mutate(data);
+      // pass options if has_options
+      const payload: { productData: any; options?: any[] } = { productData: data };
+      if (formData.has_options && formData.options.length > 0) {
+        payload.options = formData.options;
+      }
+      createMutation.mutate(payload);
     }
   };
 
   const handleEdit = (product: any) => {
     setEditingProduct(product);
-    setFormData({
-      name: product.name,
-      base_price: product.base_price?.toString() || product.price.toString(),
-      price: product.price.toString(),
-      description: product.description || "",
-      box_set_info: product.box_set_info || "",
-      stock_quantity: product.stock_quantity.toString(),
-      image_url: product.image_url || "",
-      product_flag: product.product_flag || "in-stock",
-      eta_date: product.eta_date ? new Date(product.eta_date).toISOString().split('T')[0] : "",
-    });
-    setIsDialogOpen(true);
+    // fetch product options and populate form
+    (async () => {
+      try {
+        const { data: optsData, error: optsErr } = await (supabase.from as any)('product_options')
+          .select('*')
+          .eq('product_id', product.id)
+          .order('display_order', { ascending: true });
+        if (optsErr) throw optsErr;
+
+        const mappedOpts = (optsData || []).map((o: any) => ({
+          id: o.id,
+          label: o.label,
+          sku: o.sku,
+          image_url: o.image_url || "",
+          stock_quantity: o.stock_quantity || 0,
+          price_delta: Number(o.price_delta || 0),
+          discount_price: o.discount_price != null ? Number(o.discount_price) : null,
+          display_order: o.display_order || 0,
+        }));
+
+        setFormData({
+          name: product.name,
+          base_price: product.base_price?.toString() || product.price.toString(),
+          price: product.price.toString(),
+          description: product.description || "",
+          box_set_info: product.box_set_info || "",
+          stock_quantity: product.stock_quantity.toString(),
+          image_url: product.image_url || "",
+          product_flag: product.product_flag || "in-stock",
+          eta_date: product.eta_date ? new Date(product.eta_date).toISOString().split('T')[0] : "",
+          has_options: product.has_options || false,
+          options: mappedOpts,
+        });
+      } catch (err) {
+        console.error('failed load product options', err);
+        setFormData({
+          name: product.name,
+          base_price: product.base_price?.toString() || product.price.toString(),
+          price: product.price.toString(),
+          description: product.description || "",
+          box_set_info: product.box_set_info || "",
+          stock_quantity: product.stock_quantity.toString(),
+          image_url: product.image_url || "",
+          product_flag: product.product_flag || "in-stock",
+          eta_date: product.eta_date ? new Date(product.eta_date).toISOString().split('T')[0] : "",
+          has_options: product.has_options || false,
+          options: [],
+        });
+      } finally {
+        setIsDialogOpen(true);
+      }
+    })();
   };
 
   const handleCloseDialog = () => {
@@ -129,6 +227,8 @@ export const ProductManagement = () => {
       image_url: "",
       product_flag: "in-stock",
       eta_date: "",
+      has_options: false,
+      options: [],
     });
   };
 
@@ -247,6 +347,83 @@ export const ProductManagement = () => {
                   onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
                   placeholder="https://..."
                 />
+              </div>
+
+              <div className="mt-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.has_options}
+                    onChange={(e) => setFormData({ ...formData, has_options: e.target.checked })}
+                  />
+                  <span className="text-sm">มีตัวเลือกสินค้า (เช่น ขนาด/สี)</span>
+                </label>
+                {formData.has_options && (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-medium">ตัวเลือกสินค้า</h4>
+                      <Button size="sm" onClick={() => {
+                        setFormData({
+                          ...formData,
+                          options: [
+                            ...formData.options,
+                            { label: '', sku: '', image_url: '', stock_quantity: 0, price_delta: 0, discount_price: null, display_order: formData.options.length }
+                          ]
+                        });
+                      }}>
+                        <Plus className="h-4 w-4 mr-2" /> เพิ่มตัวเลือก
+                      </Button>
+                    </div>
+
+                    {formData.options.map((opt, idx) => (
+                      <div key={idx} className="border rounded p-3 bg-surface">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label>ชื่อตัวเลือก</Label>
+                            <Input value={opt.label} onChange={(e) => {
+                              const newOpts = [...formData.options]; newOpts[idx].label = e.target.value; setFormData({ ...formData, options: newOpts });
+                            }} />
+                          </div>
+                          <div>
+                            <Label>SKU</Label>
+                            <Input value={opt.sku} onChange={(e) => {
+                              const newOpts = [...formData.options]; newOpts[idx].sku = e.target.value; setFormData({ ...formData, options: newOpts });
+                            }} />
+                          </div>
+                          <div>
+                            <Label>ส่วนต่างราคา</Label>
+                            <Input type="number" step="0.01" value={opt.price_delta} onChange={(e) => {
+                              const newOpts = [...formData.options]; newOpts[idx].price_delta = parseFloat(e.target.value || '0'); setFormData({ ...formData, options: newOpts });
+                            }} />
+                          </div>
+                          <div>
+                            <Label>ราคาลดพิเศษ</Label>
+                            <Input type="number" step="0.01" value={opt.discount_price ?? ''} onChange={(e) => {
+                              const newOpts = [...formData.options]; newOpts[idx].discount_price = e.target.value ? parseFloat(e.target.value) : null; setFormData({ ...formData, options: newOpts });
+                            }} />
+                          </div>
+                          <div>
+                            <Label>สต็อก</Label>
+                            <Input type="number" value={opt.stock_quantity} onChange={(e) => {
+                              const newOpts = [...formData.options]; newOpts[idx].stock_quantity = parseInt(e.target.value || '0'); setFormData({ ...formData, options: newOpts });
+                            }} />
+                          </div>
+                          <div>
+                            <Label>ลำดับการแสดง</Label>
+                            <Input type="number" value={opt.display_order} onChange={(e) => {
+                              const newOpts = [...formData.options]; newOpts[idx].display_order = parseInt(e.target.value || '0'); setFormData({ ...formData, options: newOpts });
+                            }} />
+                          </div>
+                        </div>
+                        <div className="flex justify-end mt-2">
+                          <Button variant="outline" size="sm" onClick={() => {
+                            const newOpts = [...formData.options]; newOpts.splice(idx, 1); setFormData({ ...formData, options: newOpts });
+                          }}>ลบ</Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <Button type="submit" className="w-full">
                 {editingProduct ? "บันทึกการแก้ไข" : "เพิ่มสินค้า"}
