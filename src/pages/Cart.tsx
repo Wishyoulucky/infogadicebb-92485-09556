@@ -4,10 +4,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useCartStore } from "@/lib/cart-store";
 import { Trash2, Minus, Plus } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const Cart = () => {
   const { items, removeItem, updateQuantity, getTotalPrice } = useCartStore();
   const navigate = useNavigate();
+  const [shipping, setShipping] = useState<number>(0);
 
   if (items.length === 0) {
     return (
@@ -128,11 +132,32 @@ const Cart = () => {
                     <span className="font-semibold">฿{getTotalPrice().toFixed(2)}</span>
                   </div>
                 </div>
-                
+
+                <div className="mb-4">
+                  <Label>ค่าส่ง (฿)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={shipping}
+                    onChange={(e) => setShipping(parseFloat(e.target.value || '0'))}
+                  />
+                </div>
+
+                <div className="border-t pt-4 mb-4">
+                  <div className="flex justify-between font-semibold">
+                    <span>ค่าส่ง</span>
+                    <span>฿{Number(shipping || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-lg mt-2">
+                    <span>ยอดรวมทั้งสิ้น</span>
+                    <span>฿{(getTotalPrice() + Number(shipping || 0)).toFixed(2)}</span>
+                  </div>
+                </div>
+
                 <Button 
                   size="lg" 
                   className="w-full"
-                  onClick={() => navigate('/checkout')}
+                  onClick={() => navigate('/checkout', { state: { shipping: Number(shipping || 0) } })}
                 >
                   ดำเนินการชำระเงิน
                 </Button>

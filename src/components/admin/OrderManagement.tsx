@@ -109,7 +109,18 @@ export const OrderManagement = () => {
                       </div>
                     ))}
                   </div>
-                  <p className="font-semibold mt-2">ยอดรวม: ฿{order.total_amount.toFixed(2)}</p>
+                  {
+                    (() => {
+                      const itemsTotal = (order.order_items || []).reduce((s: number, it: any) => s + (it.price * it.quantity), 0);
+                      const shipping = typeof order.shipping === 'number' ? order.shipping : Math.max(0, (order.total_amount || 0) - itemsTotal);
+                      return (
+                        <>
+                          <p className="font-semibold mt-2">ค่าจัดส่ง: ฿{Number(shipping || 0).toFixed(2)}</p>
+                          <p className="font-semibold mt-2">ยอดรวม: ฿{Number(order.total_amount || 0).toFixed(2)}</p>
+                        </>
+                      );
+                    })()
+                  }
                 </div>
 
                 {order.tracking_number && (

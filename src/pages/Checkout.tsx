@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCartStore } from "@/lib/cart-store";
 import { supabase } from "@/integrations/supabase/client";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -27,6 +27,9 @@ const Checkout = () => {
   const { items, getTotalPrice, clearCart } = useCartStore();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const location = useLocation();
+  const initialShipping = Number((location.state as any)?.shipping ?? 0) || 0;
+  const [shipping, setShipping] = useState<number>(initialShipping);
 
   const form = useForm<CheckoutForm>({
     resolver: zodResolver(checkoutSchema),
@@ -58,7 +61,7 @@ const Checkout = () => {
           customer_email: values.email,
           customer_phone: values.phone,
           customer_address: values.address,
-          total_amount: getTotalPrice(),
+          total_amount: getTotalPrice() + Number(shipping || 0),
           status: 'pending',
         })
         .select()
@@ -239,11 +242,23 @@ const Checkout = () => {
                     );
                   })}
                 </div>
-                
+                <div className="mb-3">
+                  <Label>ค่าส่ง (฿)</Label>
+                  <Input type="number" step="0.01" value={shipping} onChange={(e) => setShipping(parseFloat(e.target.value || '0'))} />
+                </div>
+
                 <div className="border-t pt-4">
-                  <div className="flex justify-between font-bold text-lg">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">ยอดรวมสินค้า</span>
+                    <span className="font-semibold">฿{getTotalPrice().toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold text-lg mt-2">
+                    <span>ค่าส่ง</span>
+                    <span>฿{Number(shipping || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-xl mt-2">
                     <span>ยอดรวมทั้งสิ้น</span>
-                    <span>฿{getTotalPrice().toFixed(2)}</span>
+                    <span>฿{(getTotalPrice() + Number(shipping || 0)).toFixed(2)}</span>
                   </div>
                 </div>
               </CardContent>

@@ -236,10 +236,26 @@ export const OrderDetail = ({ orderId, isOpen, onClose }: OrderDetailProps) => {
               </div>
 
               <div className="mt-4 pt-4 border-t">
-                <div className="flex justify-between text-lg font-bold">
-                  <span>ยอดรวมทั้งสิ้น</span>
-                  <span>฿{order.total_amount.toFixed(2)}</span>
-                </div>
+                {(() => {
+                  const itemsTotal = (order.order_items || []).reduce((s: number, it: any) => s + (it.price * it.quantity), 0);
+                  const shipping = typeof order.shipping === 'number' ? order.shipping : Math.max(0, (order.total_amount || 0) - itemsTotal);
+                  return (
+                    <div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">ยอดรวมสินค้า</span>
+                        <span className="font-semibold">฿{itemsTotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm mt-1">
+                        <span className="text-muted-foreground">ค่าส่ง</span>
+                        <span className="font-semibold">฿{Number(shipping || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-lg font-bold mt-2">
+                        <span>ยอดรวมทั้งสิ้น</span>
+                        <span>฿{Number(order.total_amount || 0).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </CardContent>
           </Card>

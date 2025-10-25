@@ -19,6 +19,7 @@ const ProductDetail = () => {
   const addItem = useCartStore((state) => state.addItem);
   const [quantity, setQuantity] = useState(1);
   const [selectedOption, setSelectedOption] = useState<any>(null);
+  const [selectedMain, setSelectedMain] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const { data: product, isLoading } = useQuery({
@@ -56,6 +57,11 @@ const ProductDetail = () => {
       if (option) {
         setSelectedOption(option);
         if (option.image_url) setSelectedImage(option.image_url);
+        setSelectedMain(false);
+      } else if (optParam === 'product') {
+        // opt=product selects the main product explicitly
+        setSelectedOption(null);
+        setSelectedMain(true);
       }
     }
   }, [searchParams, options]);
@@ -64,16 +70,19 @@ const ProductDetail = () => {
   useEffect(() => {
     if (selectedOption?.image_url) {
       setSelectedImage(selectedOption.image_url);
+      setSelectedMain(false);
+    } else if (selectedMain) {
+      setSelectedImage(product?.image_url ?? null);
     } else if (product?.image_url) {
       setSelectedImage(product.image_url);
     }
-  }, [selectedOption, product]);
+  }, [selectedOption, product, selectedMain]);
 
   const handleAddToCart = async () => {
     if (!product) return;
 
-    // Check if product has options and user must select one
-    if (options && options.length > 0 && !selectedOption) {
+    // If product has options, user must select an option OR explicitly choose the main product
+    if (options && options.length > 0 && !selectedOption && !selectedMain) {
       toast.error("กรุณาเลือกตัวเลือกสินค้า");
       return;
     }
@@ -81,7 +90,7 @@ const ProductDetail = () => {
     let stockToCheck, priceToUse, imageToUse, skuToUse;
     let optionData = {};
 
-    if (selectedOption) {
+  if (selectedOption) {
       // Validate stock in real-time from database
       const { data: optionCheck } = await (supabase.from as any)('product_options')
         .select('stock_quantity')
@@ -105,7 +114,7 @@ const ProductDetail = () => {
         option_image: selectedOption.image_url,
       };
     } else {
-      // No options - use base product
+      // Main product selected (or no options exist) - use base product
       if (product.stock_quantity < quantity) {
         toast.error("สต็อกไม่เพียงพอ");
         return;
@@ -149,11 +158,13 @@ const ProductDetail = () => {
     if (selectedOption) {
       return selectedOption.discount_price || (product.base_price + selectedOption.price_delta);
     }
+    if (selectedMain) return product.price;
     return product.price;
   };
 
   const getCurrentStock = () => {
     if (selectedOption) return selectedOption.stock_quantity;
+    if (selectedMain) return product?.stock_quantity || 0;
     if (options && options.length > 0) return product?.options_stock_total || 0;
     return product?.stock_quantity || 0;
   };
@@ -234,12 +245,42 @@ const ProductDetail = () => {
               <div className="space-y-3">
                 <Label className="text-base font-semibold">เลือกตัวเลือก</Label>
                 <div className="grid grid-cols-2 gap-3">
+                  {/* Main product selectable card */}
+                  <button
+                    key="__main"
+                    onClick={() => {
+                      if ((product.stock_quantity || 0) > 0) {
+                        setSelectedOption(null);
+                        setSelectedMain(true);
+                        setQuantity(1);
+                      }
+                    }}
+                    disabled={(product.stock_quantity || 0) === 0}
+                    className={cn(
+                      "relative p-4 border-2 rounded-lg text-left transition-all",
+                      selectedMain
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50",
+                      (product.stock_quantity || 0) === 0 && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    <div className="font-semibold mb-1">{product.name} (ตัวสินค้า)</div>
+                    <div className="text-sm">฿{product.price?.toFixed(2)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {product.stock_quantity > 0 ? `คงเหลือ ${product.stock_quantity}` : 'หมดแล้ว'}
+                    </div>
+                    {product.stock_quantity === 0 && (
+                      <Badge variant="destructive" className="absolute top-2 right-2 text-xs">หมด</Badge>
+                    )}
+                  </button>
+
                   {options.map((option) => (
                     <button
                       key={option.id}
                       onClick={() => {
                         if (option.stock_quantity > 0) {
                           setSelectedOption(option);
+                          setSelectedMain(false);
                           setQuantity(1);
                         }
                       }}
@@ -260,17 +301,13 @@ const ProductDetail = () => {
                         {option.stock_quantity > 0 ? `คงเหลือ ${option.stock_quantity}` : 'หมดแล้ว'}
                       </div>
                       {option.stock_quantity === 0 && (
-                        <Badge variant="destructive" className="absolute top-2 right-2 text-xs">
-                          หมด
-                        </Badge>
+                        <Badge variant="destructive" className="absolute top-2 right-2 text-xs">หมด</Badge>
                       )}
                     </button>
                   ))}
                 </div>
                 {selectedOption && (
-                  <p className="text-sm text-muted-foreground">
-                    SKU: {selectedOption.sku}
-                  </p>
+                  <p className="text-sm text-muted-foreground"> {selectedOption.sku}</p>
                 )}
               </div>
             )}
@@ -329,12 +366,12 @@ const ProductDetail = () => {
               size="lg" 
               className="w-full"
               onClick={handleAddToCart}
-              disabled={getCurrentStock() === 0 || (options && options.length > 0 && !selectedOption)}
+              disabled={getCurrentStock() === 0 || (options && options.length > 0 && !selectedOption && !selectedMain)}
             >
               <ShoppingCart className="mr-2 h-5 w-5" />
               {getCurrentStock() === 0 
                 ? "สินค้าหมด" 
-                : options && options.length > 0 && !selectedOption
+                : options && options.length > 0 && !selectedOption && !selectedMain
                 ? "กรุณาเลือกตัวเลือก"
                 : product.product_flag === 'preorder'
                 ? "พรีออเดอร์"
