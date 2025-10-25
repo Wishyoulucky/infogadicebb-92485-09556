@@ -13,13 +13,16 @@ const Admin = () => {
   const { isAdmin, isLoading: adminLoading } = useAdminAuth();
 
   useEffect(() => {
-    if (!authLoading && !user) {
+    // Wait until both auth and admin checks are finished before deciding.
+    if (authLoading || adminLoading) return;
+
+    if (!user) {
       toast.error("กรุณาเข้าสู่ระบบ");
       navigate("/auth");
       return;
     }
 
-    if (!adminLoading && user && !isAdmin) {
+    if (!isAdmin) {
       toast.error("คุณไม่มีสิทธิ์เข้าถึงหน้านี้");
       navigate("/");
       return;

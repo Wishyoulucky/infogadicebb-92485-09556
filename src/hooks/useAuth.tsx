@@ -29,30 +29,68 @@ export const useAuth = () => {
 };
 
 export const useAdminAuth = () => {
-  const [isAdmin, setIsAdmin] = useState(false);
+  // isAdmin is null while we don't yet know (avoids treating unknown as false)
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
 
   useEffect(() => {
+    let mounted = true;
+
     const checkAdmin = async () => {
-      if (!user) {
-        setIsAdmin(false);
-        setIsLoading(false);
+      // If auth status is still loading, wait — do not decide yet.
+      if (authLoading) {
+        if (mounted) setIsLoading(true);
         return;
       }
 
-      const { data } = await (supabase.from as any)("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .eq("role", "admin")
-        .single();
+      if (!user) {
+        if (mounted) {
+          setIsAdmin(false);
+          setIsLoading(false);
+        }
+        return;
+      }
 
-      setIsAdmin(!!data);
-      setIsLoading(false);
+      if (mounted) setIsLoading(true);
+
+      try {
+        // use maybeSingle so missing row doesn't throw
+        const { data, error } = await (supabase as any)
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id)
+          .eq("role", "admin")
+          .maybeSingle();
+
+        if (error) {
+          console.error("useAdminAuth fetch error:", error);
+          if (mounted) {
+            setIsAdmin(false);
+            setIsLoading(false);
+          }
+          return;
+        }
+
+        if (mounted) {
+          setIsAdmin(!!data);
+          setIsLoading(false);
+        }
+      } catch (err) {
+        console.error("useAdminAuth unexpected error:", err);
+        if (mounted) {
+          setIsAdmin(false);
+          setIsLoading(false);
+        }
+      }
     };
 
     checkAdmin();
-  }, [user]);
+
+    return () => {
+      mounted = false;
+    };
+  }, [user, authLoading]);
 
   return { isAdmin, isLoading };
 };
