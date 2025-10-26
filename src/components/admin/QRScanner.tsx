@@ -112,7 +112,7 @@ export function QRScanner({ open, onClose, onScanSuccess, title, description }: 
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>{title || "สแกนโค้ดสินค้า"}</DialogTitle> {/* ปรับ Title ทั่วไป */}
+          <DialogTitle>{title || "สแกนโค้ดสินค้า"}</DialogTitle>
           {description && <p className="text-sm text-muted-foreground">{description}</p>}
         </DialogHeader>
 
