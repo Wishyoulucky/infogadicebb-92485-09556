@@ -17,38 +17,97 @@ interface POSScannerProps {
 }
 
 interface CartItem {
-  qrHash: string;
+  // qrHash ถูกใช้เป็น Key ID สำหรับ Barcode/QR เพื่อความเข้ากันได้กับโค้ดเดิม
+  qrHash: string; 
   product: any;
   option?: any;
   quantity: number;
+  isBarcode?: boolean; // เพิ่ม field ระบุว่าเป็น Barcode เพื่อการจัดการที่ไม่ต้อง Hash
 }
 
 export function POSScanner({ open, onClose }: POSScannerProps) {
   const [showScanner, setShowScanner] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
 
-  const handleScan = async (qrRaw: string) => {
-    const qrHash = await hashQR(qrRaw);
+  const handleScan = async (rawCode: string) => {
+    
+    // กำหนดตัวแปรสำหรับผลลัพธ์การค้นหา
+    let productData: any = null;
+    let optionData: any = null;
+    let scanKey: string = rawCode; // Key ที่ใช้ระบุรายการในตะกร้า
+    let isBarcodeScan = false;
+    
+    try {
+        // 1. ตรวจสอบว่าเป็น BARCODE (EAN-13/UPC-A: ตัวเลข 12 หรือ 13 หลัก)
+        if (/^\d{12,13}$/.test(rawCode)) {
+            isBarcodeScan = true;
+            scanKey = `BARCODE-${rawCode}`;
+            
+            // 1.1 ค้นหาจาก Product Option ก่อน
+            const { data: optionMapping, error: optionError } = await (supabase as any)
+                .from('product_options')
+                .select('*, product:products(*)')
+                .eq('ean_code', rawCode) // สมมติว่ามีฟิลด์ ean_code
+                .maybeSingle();
 
-    // Find QR mapping
-    const { data: mapping, error } = await (supabase as any)
-      .from('qr_map')
-      .select('*, product:products(*), option:product_options(*)')
-      .eq('qr_hash', qrHash)
-      .maybeSingle();
+            if (optionMapping) {
+                productData = optionMapping.product;
+                optionData = optionMapping;
+            } else {
+                // 1.2 ถ้าไม่เจอใน Option ให้ค้นหาจาก Product หลัก
+                const { data: productMapping, error: productError } = await (supabase as any)
+                    .from('products')
+                    .select('*')
+                    .eq('ean_code', rawCode) // สมมติว่ามีฟิลด์ ean_code
+                    .maybeSingle();
+                
+                if (productMapping) {
+                    productData = productMapping;
+                }
+            }
 
-    if (error || !mapping) {
-      toast.error("ไม่พบสินค้า QR นี้ยังไม่ได้ผูกกับสินค้า");
-      return;
+            if (!productData) {
+                toast.error("ไม่พบสินค้าจากรหัสบาร์โค้ดนี้");
+                return;
+            }
+
+        } else {
+            // 2. ถ้าไม่ใช่ Barcode ให้ถือว่าเป็น QR CODE (ใช้ Hash เหมือนเดิม)
+            const qrHash = await hashQR(rawCode);
+            scanKey = qrHash;
+            
+            // Find QR mapping
+            const { data: mapping, error } = await (supabase as any)
+                .from('qr_map')
+                .select('*, product:products(*), option:product_options(*)')
+                .eq('qr_hash', qrHash)
+                .maybeSingle();
+
+            if (error || !mapping) {
+                toast.error("ไม่พบสินค้า QR นี้ยังไม่ได้ผูกกับสินค้า");
+                return;
+            }
+            
+            productData = mapping.product;
+            optionData = mapping.option;
+        }
+
+    } catch (e: any) {
+        console.error("Scan/Search Error:", e);
+        toast.error("เกิดข้อผิดพลาดในการค้นหาสินค้า");
+        return;
     }
 
+
+    // 3. ตรวจสอบและเพิ่มสินค้าลงในตะกร้า
+    
     // Check stock
-    const currentStock = mapping.option 
-      ? mapping.option.stock_quantity 
-      : mapping.product.stock_quantity;
+    const currentStock = optionData
+      ? optionData.stock_quantity
+      : productData.stock_quantity;
 
     // Check if already in cart
-    const existingItem = cart.find(item => item.qrHash === qrHash);
+    const existingItem = cart.find(item => item.qrHash === scanKey);
     const currentQty = existingItem ? existingItem.quantity : 0;
 
     if (currentQty >= currentStock) {
@@ -59,20 +118,21 @@ export function POSScanner({ open, onClose }: POSScannerProps) {
     // Add to cart
     if (existingItem) {
       setCart(cart.map(item =>
-        item.qrHash === qrHash
+        item.qrHash === scanKey
           ? { ...item, quantity: item.quantity + 1 }
           : item
       ));
     } else {
       setCart([...cart, {
-        qrHash,
-        product: mapping.product,
-        option: mapping.option || undefined,
+        qrHash: scanKey,
+        product: productData,
+        option: optionData || undefined,
         quantity: 1,
+        isBarcode: isBarcodeScan,
       }]);
     }
 
-    toast.success("เพิ่มลงตะกร้าแล้ว");
+    toast.success(`เพิ่ม ${productData.name} ${optionData?.label || ''} ลงตะกร้าแล้ว`);
     setShowScanner(false);
 
     // Auto-open scanner again for continuous scanning
@@ -83,8 +143,8 @@ export function POSScanner({ open, onClose }: POSScannerProps) {
     const item = cart.find(i => i.qrHash === qrHash);
     if (!item) return;
 
-    const maxStock = item.option 
-      ? item.option.stock_quantity 
+    const maxStock = item.option
+      ? item.option.stock_quantity
       : item.product.stock_quantity;
 
     if (newQty > maxStock) {
@@ -107,7 +167,7 @@ export function POSScanner({ open, onClose }: POSScannerProps) {
   };
 
   const getItemPrice = (item: CartItem) => {
-    return item.option 
+    return item.option
       ? item.product.base_price + item.option.price_delta
       : item.product.price;
   };
@@ -146,7 +206,7 @@ export function POSScanner({ open, onClose }: POSScannerProps) {
               className="w-full"
               size="lg"
             >
-              สแกน QR เพิ่มสินค้า
+              สแกน Barcode / QR เพิ่มสินค้า
             </Button>
 
             {cart.length > 0 && (
@@ -165,7 +225,14 @@ export function POSScanner({ open, onClose }: POSScannerProps) {
                           )}
                           
                           <div className="flex-1">
-                            <p className="font-medium">{item.product.name}</p>
+                            <p className="font-medium">
+                              {item.product.name}
+                              {item.isBarcode && (
+                                <Badge variant="secondary" className="ml-2 text-xs">
+                                    BARCODE
+                                </Badge>
+                              )}
+                            </p>
                             {item.option && (
                               <p className="text-sm text-muted-foreground">{item.option.label}</p>
                             )}
@@ -222,7 +289,7 @@ export function POSScanner({ open, onClose }: POSScannerProps) {
               <div className="text-center py-12 text-muted-foreground">
                 <ShoppingCart className="h-12 w-12 mx-auto mb-2 opacity-50" />
                 <p>ตะกร้าว่าง</p>
-                <p className="text-sm">สแกน QR เพื่อเพิ่มสินค้า</p>
+                <p className="text-sm">สแกน Barcode หรือ QR เพื่อเพิ่มสินค้า</p>
               </div>
             )}
           </div>
@@ -233,7 +300,7 @@ export function POSScanner({ open, onClose }: POSScannerProps) {
         open={showScanner}
         onClose={() => setShowScanner(false)}
         onScanSuccess={handleScan}
-        title="สแกน QR สินค้า"
+        title="สแกน Barcode / QR สินค้า"
         description="สแกนต่อเนื่องเพื่อเพิ่มหลายรายการ"
       />
     </>
