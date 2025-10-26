@@ -13,360 +13,410 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface QRLinkDialogProps {
-  open: boolean;
-  onClose: () => void;
-  qrRaw: string;
-  onSuccess: () => void;
+  open: boolean;
+  onClose: () => void;
+  qrRaw: string;
+  onSuccess: () => void;
+}
+
+// Helper function to check if the raw code is a standard Barcode (EAN-13 or UPC-A length)
+const isBarcode = (raw: string): boolean => {
+    // Barcode EAN-13 (13 digits) or UPC-A (12 digits)
+    return /^\d{12,13}$/.test(raw); 
 }
 
 export function QRLinkDialog({ open, onClose, qrRaw, onSuccess }: QRLinkDialogProps) {
-  const [mode, setMode] = useState<'create' | 'link'>('link');
-  const queryClient = useQueryClient();
+  const [mode, setMode] = useState<'create' | 'link'>('link');
+  const queryClient = useQueryClient();
 
-  // Form states for creating new product
-  const [formData, setFormData] = useState({
-    name: "",
-    price: "",
-    stock_quantity: "0",
-    image_url: "",
-    product_flag: "in-stock" as const,
-    eta_date: "",
-  });
+    // Determine code type for display and logic
+    const isBarcodeType = isBarcode(qrRaw);
+    const codeType = isBarcodeType ? 'Barcode' : 'QR Code';
 
-  // States for linking existing product
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
-  const [selectedOptionId, setSelectedOptionId] = useState<string>("");
-  const [searchOpen, setSearchOpen] = useState(false);
+  // Form states for creating new product
+  const [formData, setFormData] = useState({
+    name: "",
+    price: "",
+    stock_quantity: "0",
+    image_url: "",
+    product_flag: "in-stock" as const,
+    eta_date: "",
+  });
 
-  // Fetch all products for linking
-  const { data: products = [] } = useQuery({
-    queryKey: ['products-for-qr-link'],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from('products')
-        .select('*, product_options(*)')
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      return data || [];
-    },
-  });
+  // States for linking existing product
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [selectedOptionId, setSelectedOptionId] = useState<string>("");
+  const [searchOpen, setSearchOpen] = useState(false);
 
-  // Fetch options for selected product
-  const selectedProduct = products.find((p: any) => p.id === selectedProductId);
-  const hasOptions = selectedProduct?.has_options && selectedProduct?.product_options?.length > 0;
+  // Fetch all products for linking
+  const { data: products = [] } = useQuery({
+    queryKey: ['products-for-qr-link'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('products')
+        .select('*, product_options(*)')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    },
+  });
 
-  // Create QR mapping
-  const createMappingMutation = useMutation({
-    mutationFn: async ({ productId, optionId }: { productId: string; optionId: string | null }) => {
-      const qrHash = await hashQR(qrRaw);
-      const { data: authData } = await supabase.auth.getUser();
+  // Fetch options for selected product
+  const selectedProduct = products.find((p: any) => p.id === selectedProductId);
+  const hasOptions = selectedProduct?.has_options && selectedProduct?.product_options?.length > 0;
 
-      const { data, error } = await (supabase as any)
-        .from('qr_map')
-        .insert({
-          qr_raw: qrRaw,
-          qr_hash: qrHash,
-          product_id: productId,
-          option_id: optionId,
-          created_by: authData.user?.id,
-        })
-        .select()
-        .single();
+  // Create QR mapping / Link Barcode
+  const createMappingMutation = useMutation({
+    mutationFn: async ({ productId, optionId }: { productId: string; optionId: string | null }) => {
+        const { data: authData } = await supabase.auth.getUser();
 
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      toast.success("ผูก QR สำเร็จ");
-      queryClient.invalidateQueries({ queryKey: ['qr-mappings'] });
-      onSuccess();
-      onClose();
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "ไม่สามารถผูก QR ได้");
-    },
-  });
+        if (isBarcodeType) {
+            // --- BARCODE LOGIC ---
+            // 1. Check for duplicate Barcode
+            const tableName = optionId ? 'product_options' : 'products';
+            const { data: existing, error: checkError } = await (supabase as any)
+                .from(tableName)
+                .select('id')
+                .eq('ean_code', qrRaw)
+                .maybeSingle();
 
-  // Create new product with QR mapping
-  const createProductMutation = useMutation({
-    mutationFn: async () => {
-      const { data: authData } = await supabase.auth.getUser();
+            if (existing) {
+                throw new Error(`รหัส Barcode นี้ (${qrRaw}) ถูกผูกกับสินค้าอื่นแล้ว`);
+            }
 
-      // 1. Create product
-      const { data: product, error: productError } = await (supabase as any)
-        .from('products')
-        .insert({
-          name: formData.name,
-          price: parseFloat(formData.price),
-          base_price: parseFloat(formData.price),
-          stock_quantity: parseInt(formData.stock_quantity) || 0,
-          image_url: formData.image_url || null,
-          product_flag: formData.product_flag,
-          eta_date: formData.eta_date || null,
-          has_options: false,
-          options_stock_total: 0,
-        })
-        .select()
-        .single();
+            // 2. Link Barcode by updating ean_code field
+            const idField = optionId ? 'id' : 'id';
+            const idValue = optionId || productId;
+            
+            const { error: updateError } = await (supabase as any)
+                .from(tableName)
+                .update({ ean_code: qrRaw }) // Use qrRaw as the ean_code
+                .eq(idField, idValue);
+                
+            if (updateError) throw updateError;
+            
+            return { type: 'barcode_link' }; // Return a success object
+        }
+        
+        // --- QR CODE LOGIC (Original) ---
+        const qrHash = await hashQR(qrRaw);
+        
+        const { data, error } = await (supabase as any)
+          .from('qr_map')
+          .insert({
+            qr_raw: qrRaw,
+            qr_hash: qrHash,
+            product_id: productId,
+            option_id: optionId,
+            created_by: authData.user?.id,
+          })
+          .select()
+          .single();
 
-      if (productError) throw productError;
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      toast.success(`ผูก ${codeType} สำเร็จ`);
+      queryClient.invalidateQueries({ queryKey: ['qr-mappings'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-products'] }); 
+      queryClient.invalidateQueries({ queryKey: ['products-for-qr-link'] });
+      onSuccess();
+      onClose();
+    },
+    onError: (error: any) => {
+      toast.error(error.message || `ไม่สามารถผูก ${codeType} ได้`);
+    },
+  });
 
-      // 2. Create QR mapping
-      const qrHash = await hashQR(qrRaw);
-      const { error: mapError } = await (supabase as any)
-        .from('qr_map')
-        .insert({
-          qr_raw: qrRaw,
-          qr_hash: qrHash,
-          product_id: product.id,
-          option_id: null,
-          created_by: authData.user?.id,
-        });
+  // Create new product with QR mapping / Barcode
+  const createProductMutation = useMutation({
+    mutationFn: async () => {
+      const { data: authData } = await supabase.auth.getUser();
 
-      if (mapError) throw mapError;
+      // 1. Create product
+      const { data: product, error: productError } = await (supabase as any)
+        .from('products')
+        .insert({
+          name: formData.name,
+          price: parseFloat(formData.price),
+          base_price: parseFloat(formData.price),
+          stock_quantity: parseInt(formData.stock_quantity) || 0,
+          image_url: formData.image_url || null,
+          product_flag: formData.product_flag,
+          eta_date: formData.eta_date || null,
+          has_options: false,
+          options_stock_total: 0,
+            ean_code: isBarcodeType ? qrRaw : null, // Set ean_code for Barcode
+        })
+        .select()
+        .single();
 
-      // 3. Log stock movement if stock > 0
-      if (parseInt(formData.stock_quantity) > 0) {
-        await (supabase as any)
-          .from('stock_movements')
-          .insert({
-            product_id: product.id,
-            option_id: null,
-            delta: parseInt(formData.stock_quantity),
-            before_qty: 0,
-            after_qty: parseInt(formData.stock_quantity),
-            reason: 'create-by-qr',
-            notes: 'Created via QR scan',
-            admin_user_id: authData.user?.id,
-          });
-      }
+      if (productError) throw productError;
 
-      return product;
-    },
-    onSuccess: () => {
-      toast.success("สร้างสินค้าและผูก QR สำเร็จ");
-      queryClient.invalidateQueries({ queryKey: ['admin-products'] });
-      queryClient.invalidateQueries({ queryKey: ['qr-mappings'] });
-      onSuccess();
-      onClose();
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "ไม่สามารถสร้างสินค้าได้");
-    },
-  });
+      // 2. Create QR mapping (Only for QR Code)
+      if (!isBarcodeType) {
+        const qrHash = await hashQR(qrRaw);
+        const { error: mapError } = await (supabase as any)
+          .from('qr_map')
+          .insert({
+            qr_raw: qrRaw,
+            qr_hash: qrHash,
+            product_id: product.id,
+            option_id: null,
+            created_by: authData.user?.id,
+          });
 
-  const handleLinkExisting = () => {
-    if (!selectedProductId) {
-      toast.error("กรุณาเลือกสินค้า");
-      return;
-    }
+        if (mapError) throw mapError;
+      }
 
-    if (hasOptions && !selectedOptionId) {
-      toast.error("กรุณาเลือกตัวเลือก");
-      return;
-    }
+      // 3. Log stock movement if stock > 0
+      if (parseInt(formData.stock_quantity) > 0) {
+        await (supabase as any)
+          .from('stock_movements')
+          .insert({
+            product_id: product.id,
+            option_id: null,
+            delta: parseInt(formData.stock_quantity),
+            before_qty: 0,
+            after_qty: parseInt(formData.stock_quantity),
+            reason: 'create-by-qr',
+            notes: `Created via ${codeType} scan`,
+            admin_user_id: authData.user?.id,
+          });
+      }
 
-    createMappingMutation.mutate({
-      productId: selectedProductId,
-      optionId: hasOptions ? selectedOptionId : null,
-    });
-  };
+      return product;
+    },
+    onSuccess: () => {
+      toast.success(`สร้างสินค้าและผูก ${codeType} สำเร็จ`);
+      queryClient.invalidateQueries({ queryKey: ['admin-products'] });
+      queryClient.invalidateQueries({ queryKey: ['qr-mappings'] });
+      onSuccess();
+      onClose();
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "ไม่สามารถสร้างสินค้าได้");
+    },
+  });
 
-  const handleCreateNew = () => {
-    if (!formData.name || !formData.price) {
-      toast.error("กรุณากรอกชื่อและราคา");
-      return;
-    }
+  const handleLinkExisting = () => {
+    if (!selectedProductId) {
+      toast.error("กรุณาเลือกสินค้า");
+      return;
+    }
 
-    if (formData.product_flag !== 'in-stock' && !formData.eta_date) {
-      toast.error("กรุณาระบุวันที่โดยประมาณ (ETA)");
-      return;
-    }
+    if (hasOptions && !selectedOptionId) {
+      toast.error("กรุณาเลือกตัวเลือก");
+      return;
+    }
 
-    createProductMutation.mutate();
-  };
+    createMappingMutation.mutate({
+      productId: selectedProductId,
+      optionId: hasOptions ? selectedOptionId : null,
+    });
+  };
 
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>ผูก QR กับสินค้า (ครั้งแรก)</DialogTitle>
-          <p className="text-sm text-muted-foreground">QR: {qrRaw.substring(0, 50)}...</p>
-        </DialogHeader>
+  const handleCreateNew = () => {
+    if (!formData.name || !formData.price) {
+      toast.error("กรุณากรอกชื่อและราคา");
+      return;
+    }
 
-        <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="link">
-              <Link className="mr-2 h-4 w-4" />
-              เลือกสินค้าที่มีอยู่
-            </TabsTrigger>
-            <TabsTrigger value="create">
-              <Plus className="mr-2 h-4 w-4" />
-              สร้างสินค้าใหม่
-            </TabsTrigger>
-          </TabsList>
+    if (formData.product_flag !== 'in-stock' && !formData.eta_date) {
+      toast.error("กรุณาระบุวันที่โดยประมาณ (ETA)");
+      return;
+    }
 
-          <TabsContent value="link" className="space-y-4">
-            <div className="space-y-2">
-              <Label>เลือกสินค้า</Label>
-              <Popover open={searchOpen} onOpenChange={setSearchOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start">
-                    {selectedProductId
-                      ? products.find((p: any) => p.id === selectedProductId)?.name
-                      : "ค้นหาสินค้า..."}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[400px] p-0">
-                  <Command>
-                    <CommandInput placeholder="ค้นหาชื่อหรือ SKU..." />
-                    <CommandEmpty>ไม่พบสินค้า</CommandEmpty>
-                    <CommandGroup className="max-h-[300px] overflow-auto">
-                      {products.map((product: any) => (
-                        <CommandItem
-                          key={product.id}
-                          value={`${product.name} ${product.sku || ''}`}
-                          onSelect={() => {
-                            setSelectedProductId(product.id);
-                            setSelectedOptionId("");
-                            setSearchOpen(false);
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            {product.image_url && (
-                              <img src={product.image_url} alt="" className="h-8 w-8 rounded object-cover" />
-                            )}
-                            <div>
-                              <p className="font-medium">{product.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {product.sku && `SKU: ${product.sku} · `}฿{product.price}
-                              </p>
-                            </div>
-                          </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
+    createProductMutation.mutate();
+  };
 
-            {hasOptions && (
-              <div className="space-y-2">
-                <Label>เลือกตัวเลือก</Label>
-                <Select value={selectedOptionId} onValueChange={setSelectedOptionId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="เลือกตัวเลือก" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {selectedProduct.product_options.map((opt: any) => (
-                      <SelectItem key={opt.id} value={opt.id}>
-                        {opt.label} - {opt.sku} (สต็อก: {opt.stock_quantity})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>ผูก {codeType} กับสินค้า (ครั้งแรก)</DialogTitle>
+          <p className="text-sm text-muted-foreground">{codeType}: {qrRaw}</p>
+        </DialogHeader>
 
-            <Button
-              onClick={handleLinkExisting}
-              disabled={createMappingMutation.isPending}
-              className="w-full"
-            >
-              ผูก QR กับสินค้านี้
-            </Button>
-          </TabsContent>
+        <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="link">
+              <Link className="mr-2 h-4 w-4" />
+              เลือกสินค้าที่มีอยู่
+            </TabsTrigger>
+            <TabsTrigger value="create">
+              <Plus className="mr-2 h-4 w-4" />
+              สร้างสินค้าใหม่
+            </TabsTrigger>
+          </TabsList>
 
-          <TabsContent value="create" className="space-y-4">
-            <div className="space-y-2">
-              <Label>ชื่อสินค้า *</Label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="ชื่อสินค้า"
-              />
-            </div>
+          <TabsContent value="link" className="space-y-4">
+            <div className="space-y-2">
+              <Label>เลือกสินค้า</Label>
+              <Popover open={searchOpen} onOpenChange={setSearchOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start">
+                    {selectedProductId
+                      ? products.find((p: any) => p.id === selectedProductId)?.name
+                      : "ค้นหาสินค้า..."}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0">
+                  <Command>
+                    <CommandInput placeholder="ค้นหาชื่อหรือ SKU..." />
+                    <CommandEmpty>ไม่พบสินค้า</CommandEmpty>
+                    <CommandGroup className="max-h-[300px] overflow-auto">
+                      {products.map((product: any) => (
+                        <CommandItem
+                          key={product.id}
+                          value={`${product.name} ${product.sku || ''}`}
+                          onSelect={() => {
+                            setSelectedProductId(product.id);
+                            setSelectedOptionId("");
+                            setSearchOpen(false);
+                          }}
+                        >
+                          <div className="flex items-center gap-2">
+                            {product.image_url && (
+                              <img src={product.image_url} alt="" className="h-8 w-8 rounded object-cover" />
+                            )}
+                            <div>
+                              <p className="font-medium">{product.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {product.sku && `SKU: ${product.sku} · `}฿{product.price}
+                              </p>
+                            </div>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {isBarcodeType && (
+                <p className="text-xs text-orange-500">
+                  **หมายเหตุ:** การผูก Barcode จะอัปเดตช่อง **EAN Code** ในข้อมูลสินค้าโดยตรง
+                </p>
+              )}
+            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>ราคา *</Label>
-                <Input
-                  type="number"
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  placeholder="0"
-                />
-              </div>
+            {hasOptions && (
+              <div className="space-y-2">
+                <Label>เลือกตัวเลือก</Label>
+                <Select value={selectedOptionId} onValueChange={setSelectedOptionId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="เลือกตัวเลือก" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectedProduct.product_options.map((opt: any) => (
+                      <SelectItem key={opt.id} value={opt.id}>
+                        {opt.label} - {opt.sku} (สต็อก: {opt.stock_quantity})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-              <div className="space-y-2">
-                <Label>สต็อก</Label>
-                <Input
-                  type="number"
-                  value={formData.stock_quantity}
-                  onChange={(e) => setFormData({ ...formData, stock_quantity: e.target.value })}
-                  placeholder="0"
-                />
-              </div>
-            </div>
+            <Button
+              onClick={handleLinkExisting}
+              disabled={createMappingMutation.isPending}
+              className="w-full"
+            >
+              ผูก {codeType} กับสินค้านี้
+            </Button>
+          </TabsContent>
 
-            <div className="space-y-2">
-              <Label>สถานะสินค้า</Label>
-              <Select
-                value={formData.product_flag}
-                onValueChange={(v: any) => setFormData({ ...formData, product_flag: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="in-stock">พร้อมส่ง</SelectItem>
-                  <SelectItem value="preorder">พรีออเดอร์</SelectItem>
-                  <SelectItem value="presale">พรีเซล</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <TabsContent value="create" className="space-y-4">
+            <div className="space-y-2">
+              <Label>ชื่อสินค้า *</Label>
+              <Input
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="ชื่อสินค้า"
+              />
+            </div>
 
-            {formData.product_flag !== 'in-stock' && (
-              <div className="space-y-2">
-                <Label>ETA (วันที่โดยประมาณ) *</Label>
-                <Input
-                  type="date"
-                  value={formData.eta_date}
-                  onChange={(e) => setFormData({ ...formData, eta_date: e.target.value })}
-                />
-              </div>
-            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>ราคา *</Label>
+                <Input
+                  type="number"
+                  value={formData.price}
+                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                  placeholder="0"
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label>URL รูปภาพ</Label>
-              <Input
-                value={formData.image_url}
-                onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                placeholder="https://..."
-              />
-            </div>
+              <div className="space-y-2">
+                <Label>สต็อก</Label>
+                <Input
+                  type="number"
+                  value={formData.stock_quantity}
+                  onChange={(e) => setFormData({ ...formData, stock_quantity: e.target.value })}
+                  placeholder="0"
+                />
+              </div>
+            </div>
 
-            <Button
-              onClick={handleCreateNew}
-              disabled={createProductMutation.isPending}
-              className="w-full"
-            >
-              สร้างสินค้าและผูก QR
-            </Button>
-          </TabsContent>
-        </Tabs>
-      </DialogContent>
-    </Dialog>
-  );
+            <div className="space-y-2">
+              <Label>สถานะสินค้า</Label>
+              <Select
+                value={formData.product_flag}
+                onValueChange={(v: any) => setFormData({ ...formData, product_flag: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="in-stock">พร้อมส่ง</SelectItem>
+                  <SelectItem value="preorder">พรีออเดอร์</SelectItem>
+                  <SelectItem value="presale">พรีเซล</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {formData.product_flag !== 'in-stock' && (
+              <div className="space-y-2">
+                <Label>ETA (วันที่โดยประมาณ) *</Label>
+                <Input
+                  type="date"
+                  value={formData.eta_date}
+                  onChange={(e) => setFormData({ ...formData, eta_date: e.target.value })}
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>URL รูปภาพ</Label>
+              <Input
+                value={formData.image_url}
+                onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                placeholder="https://..."
+              />
+            </div>
+
+            <Button
+              onClick={handleCreateNew}
+              disabled={createProductMutation.isPending}
+              className="w-full"
+            >
+              สร้างสินค้าและผูก {codeType}
+            </Button>
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
-// Hash function for QR data
+// Hash function for QR data (เหมือนเดิม)
 async function hashQR(raw: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(raw);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  const encoder = new TextEncoder();
+  const data = encoder.encode(raw);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
