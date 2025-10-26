@@ -297,7 +297,7 @@ export const ProductManagement = () => {
                 // จัดรูปแบบผลลัพธ์
                 mappingResult = { product: productMapping, option: null };
             } else {
-                // ต้องมี checkError หรือ prodErr ด้วยในโลกจริง, แต่สำหรับโค้ดนี้ใช้ mappingError รวมไปเลย
+                // ในกรณีที่ค้นหาไม่พบเลย
                 mappingError = prodErr; 
             }
         }
