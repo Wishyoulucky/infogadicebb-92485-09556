@@ -7,16 +7,31 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, QrCode, ShoppingCart, Link as LinkIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ProductOptionsManager } from "./ProductOptionsManager";
+import { QRScanner } from "./QRScanner";
+import { QRLinkDialog } from "./QRLinkDialog";
+import { QuickStockDialog } from "./QuickStockDialog";
+import { POSScanner } from "./POSScanner";
 
 export const ProductManagement = () => {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [showOptionsManager, setShowOptionsManager] = useState<string | null>(null);
+  
+  // QR Scanner states
+  const [showQRScanner, setShowQRScanner] = useState(false);
+  const [showQRLinkDialog, setShowQRLinkDialog] = useState(false);
+  const [showQuickStockDialog, setShowQuickStockDialog] = useState(false);
+  const [showPOSScanner, setShowPOSScanner] = useState(false);
+  const [scannedQR, setScannedQR] = useState<string>("");
+  const [foundProduct, setFoundProduct] = useState<any>(null);
+  const [foundOption, setFoundOption] = useState<any>(null);
+  const [qrScanMode, setQrScanMode] = useState<'link' | 'stock'>('stock');
+  
   const [formData, setFormData] = useState({
     name: "",
     base_price: "",
@@ -232,17 +247,107 @@ export const ProductManagement = () => {
     });
   };
 
+  // QR Scanner handlers
+  const handleQRScan = async (qrRaw: string) => {
+    setScannedQR(qrRaw);
+    setShowQRScanner(false);
+
+    // Hash QR
+    const qrHash = await hashQR(qrRaw);
+
+    // Check if QR is already mapped
+    const { data: mapping, error } = await (supabase as any)
+      .from('qr_map')
+      .select('*, product:products(*), option:product_options(*)')
+      .eq('qr_hash', qrHash)
+      .maybeSingle();
+
+    if (error) {
+      toast.error("เกิดข้อผิดพลาดในการตรวจสอบ QR");
+      return;
+    }
+
+    if (!mapping) {
+      // QR ยังไม่ผูก → ไปหน้าผูก
+      if (qrScanMode === 'link') {
+        setShowQRLinkDialog(true);
+      } else {
+        toast.error("QR นี้ยังไม่ได้ผูกกับสินค้า กรุณาใช้โหมด 'สร้าง/ผูกสินค้า' ก่อน");
+      }
+      return;
+    }
+
+    // QR ผูกแล้ว
+    if (qrScanMode === 'link') {
+      toast.info("QR นี้ผูกกับสินค้าแล้ว");
+      return;
+    }
+
+    // โหมดสต็อก → เปิด Quick Stock
+    setFoundProduct(mapping.product);
+    setFoundOption(mapping.option || null);
+    setShowQuickStockDialog(true);
+  };
+
+  const handleQRLinkSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin-products'] });
+    setShowQRLinkDialog(false);
+    setScannedQR("");
+  };
+
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h2 className="text-2xl font-bold">สินค้าทั้งหมด</h2>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={() => setEditingProduct(null)}>
-              <Plus className="mr-2 h-4 w-4" />
-              เพิ่มสินค้าใหม่
+        
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowPOSScanner(true)}
+          >
+            <ShoppingCart className="mr-2 h-4 w-4" />
+            POS
+          </Button>
+
+          <div className="flex items-center gap-0 border rounded-md">
+            <Select
+              value={qrScanMode}
+              onValueChange={(v: any) => setQrScanMode(v)}
+            >
+              <SelectTrigger className="w-[180px] border-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="link">
+                  <div className="flex items-center gap-2">
+                    <LinkIcon className="h-4 w-4" />
+                    สร้าง/ผูกสินค้า
+                  </div>
+                </SelectItem>
+                <SelectItem value="stock">
+                  <div className="flex items-center gap-2">
+                    <QrCode className="h-4 w-4" />
+                    เช็ค/อัปเดตสต็อก
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowQRScanner(true)}
+            >
+              <QrCode className="h-4 w-4" />
             </Button>
-          </DialogTrigger>
+          </div>
+
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={() => setEditingProduct(null)}>
+                <Plus className="mr-2 h-4 w-4" />
+                เพิ่มสินค้าใหม่
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingProduct ? "แก้ไขสินค้า" : "เพิ่มสินค้าใหม่"}</DialogTitle>
@@ -431,6 +536,7 @@ export const ProductManagement = () => {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="grid gap-4">
@@ -507,6 +613,56 @@ export const ProductManagement = () => {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* QR Scanner */}
+      <QRScanner
+        open={showQRScanner}
+        onClose={() => setShowQRScanner(false)}
+        onScanSuccess={handleQRScan}
+        title={qrScanMode === 'link' ? 'สแกน QR เพื่อผูกสินค้า' : 'สแกน QR เพื่อเช็คสต็อก'}
+      />
+
+      {/* QR Link Dialog */}
+      {showQRLinkDialog && (
+        <QRLinkDialog
+          open={showQRLinkDialog}
+          onClose={() => {
+            setShowQRLinkDialog(false);
+            setScannedQR("");
+          }}
+          qrRaw={scannedQR}
+          onSuccess={handleQRLinkSuccess}
+        />
+      )}
+
+      {/* Quick Stock Dialog */}
+      {showQuickStockDialog && foundProduct && (
+        <QuickStockDialog
+          open={showQuickStockDialog}
+          onClose={() => {
+            setShowQuickStockDialog(false);
+            setFoundProduct(null);
+            setFoundOption(null);
+          }}
+          product={foundProduct}
+          option={foundOption}
+        />
+      )}
+
+      {/* POS Scanner */}
+      <POSScanner
+        open={showPOSScanner}
+        onClose={() => setShowPOSScanner(false)}
+      />
      </div>
    );
  };
+
+// Hash function for QR
+async function hashQR(raw: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(raw);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
