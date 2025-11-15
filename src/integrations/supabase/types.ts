@@ -119,6 +119,7 @@ export type Database = {
           created_at: string
           discount_price: number | null
           display_order: number | null
+          ean_code: string | null
           id: string
           image_url: string | null
           label: string
@@ -131,6 +132,7 @@ export type Database = {
           created_at?: string
           discount_price?: number | null
           display_order?: number | null
+          ean_code?: string | null
           id?: string
           image_url?: string | null
           label: string
@@ -143,6 +145,7 @@ export type Database = {
           created_at?: string
           discount_price?: number | null
           display_order?: number | null
+          ean_code?: string | null
           id?: string
           image_url?: string | null
           label?: string
@@ -167,6 +170,7 @@ export type Database = {
           box_set_info: string | null
           created_at: string
           description: string | null
+          ean_code: string | null
           eta_date: string | null
           has_options: boolean | null
           id: string
@@ -175,6 +179,7 @@ export type Database = {
           options_stock_total: number | null
           price: number
           product_flag: Database["public"]["Enums"]["product_flag"] | null
+          sku: string | null
           stock_quantity: number
         }
         Insert: {
@@ -182,6 +187,7 @@ export type Database = {
           box_set_info?: string | null
           created_at?: string
           description?: string | null
+          ean_code?: string | null
           eta_date?: string | null
           has_options?: boolean | null
           id?: string
@@ -190,6 +196,7 @@ export type Database = {
           options_stock_total?: number | null
           price: number
           product_flag?: Database["public"]["Enums"]["product_flag"] | null
+          sku?: string | null
           stock_quantity?: number
         }
         Update: {
@@ -197,6 +204,7 @@ export type Database = {
           box_set_info?: string | null
           created_at?: string
           description?: string | null
+          ean_code?: string | null
           eta_date?: string | null
           has_options?: boolean | null
           id?: string
@@ -205,9 +213,109 @@ export type Database = {
           options_stock_total?: number | null
           price?: number
           product_flag?: Database["public"]["Enums"]["product_flag"] | null
+          sku?: string | null
           stock_quantity?: number
         }
         Relationships: []
+      }
+      qr_map: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          option_id: string | null
+          product_id: string
+          qr_hash: string
+          qr_raw: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          option_id?: string | null
+          product_id: string
+          qr_hash: string
+          qr_raw: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          option_id?: string | null
+          product_id?: string
+          qr_hash?: string
+          qr_raw?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qr_map_option_id_fkey"
+            columns: ["option_id"]
+            isOneToOne: false
+            referencedRelation: "product_options"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qr_map_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stock_movements: {
+        Row: {
+          admin_user_id: string | null
+          after_qty: number
+          before_qty: number
+          created_at: string
+          delta: number
+          id: string
+          notes: string | null
+          option_id: string | null
+          product_id: string
+          reason: string
+        }
+        Insert: {
+          admin_user_id?: string | null
+          after_qty: number
+          before_qty: number
+          created_at?: string
+          delta: number
+          id?: string
+          notes?: string | null
+          option_id?: string | null
+          product_id: string
+          reason: string
+        }
+        Update: {
+          admin_user_id?: string | null
+          after_qty?: number
+          before_qty?: number
+          created_at?: string
+          delta?: number
+          id?: string
+          notes?: string | null
+          option_id?: string | null
+          product_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_movements_option_id_fkey"
+            columns: ["option_id"]
+            isOneToOne: false
+            referencedRelation: "product_options"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
